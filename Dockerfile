@@ -8,4 +8,4 @@ RUN apt update && apt dist-upgrade -y && apt auto-remove -y && apt clean -y
 RUN ansible-playbook upstart.yml --tags build -c local
 # PUT YER ENVS in here
 RUN ansible-playbook upstart.yml --tags run -c local
-ENTRYPOINT ["entrypoint.sh"]
+ENTRYPOINT ["/bin/bash","/opt/manager/entrypoint.sh"]
