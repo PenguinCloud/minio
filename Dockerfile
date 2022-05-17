@@ -1,5 +1,5 @@
 FROM penguintech/core-ansible
-LABEL company="Penguinz Tech Group LLC"
+LABEL company="Penguin Tech Group LLC"
 LABEL org.opencontainers.image.authors="info@penguintech.group"
 COPY . /opt/manager/
 WORKDIR /opt/manager
