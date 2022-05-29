@@ -1,7 +1,6 @@
-
 [[_TOC_]]
 
-# Requirement to Collaborate
+# Requirements to Collaborate
 This is a Penguin Technologies Group LLC image, depending on the type of license, you may not be able to contribute. Please see license agreement and ask.
 
 # How to contribute your code.
