@@ -28,7 +28,7 @@
         - build
     - name: Execute application
       include_tasks:
-        file: jobs/exec/exec.yml
+        file: jobs/run/exec.yml
         apply:
           tags:
             - exec
