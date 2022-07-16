@@ -18,7 +18,7 @@
       include_vars:
         file: "vars/{{ lookup('env', 'COMPUTE_ENV') | default( 'base', True) }}.yml"
       ignore_errors: yes
-    - name: Build And Install
+    - name: Run And Configure
       include_tasks:
         file: jobs/run/run.yml
     - name: Execute application
