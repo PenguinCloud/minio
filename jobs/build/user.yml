@@ -5,12 +5,15 @@
     mode: "0555"
     owner: root
     group: root
+- name: Make sure admin group 
+  group:
+    name: admins
 - name: Add run user ptg-user
   ansible.builtin.user:
     name: "{{ run.user }}"
     shell: /bin/bash
     uid: 1337
-    groups: admin
+    groups: admins
     append: yes
 - name: Give user ownership of app directory
   file:
