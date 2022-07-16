@@ -1,11 +1,11 @@
 - name: Copy Sudoers
   copy:
     src: "{{ playbook_dir }}/configs/sudoer"
-    dest: /etc/Sudoers
+    dest: /etc/sudoers
     mode: "0555"
     owner: root
     group: root
-- name: Add the user 'james' with a bash shell, appending the group 'admins' and 'developers' to the user's groups
+- name: Add run user ptg-user
   ansible.builtin.user:
     name: "{{ run.user }}"
     shell: /bin/bash
