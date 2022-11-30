@@ -2,27 +2,81 @@
 variables:
   RELEASE_VERSION: v0.1.0
 
+include:
+  - template: Code-Quality.gitlab-ci.yml
+  - template: Security/SAST.gitlab-ci.yml
+  #- template: Jobs/Secret-Detection.gitlab-ci.yml
+
+variables:
+  SCAN_KUBERNETES_MANIFESTS: "false"  
+
+#secret_detection:
+#  variables:
+#    SECRET_DETECTION_HISTORIC_SCAN: "true"
+
 workflow:
   rules:
     - if: $CI_COMMIT_BRANCH
       exists:
         - Dockerfile
 stages:
-  - pre-test
+  - .pre
+  - lint
   - build
   - test
+  - integration
+  - deploy
   - cleanup
 
-before_script:
-  - docker info
-  - docker pull ubuntu:20.04
-  - cat ~/.docker/token | docker login --password-stdin -u cicd  $CI_REGISTRY
-  - echo "Milestone $RELEASE_VERSION"
-  - echo "Image $CI_REGISTRY_IMAGE"
-  - echo "Event source $CI_PIPELINE_SOURCE"
+prep:
+  stage: .pre
+  script:
+    - docker info
+    - docker pull ubuntu:20.04
+    - cat ~/.docker/token | docker login --password-stdin -u cicd  $CI_REGISTRY
+    - pip install ansible ansible-lint
+    - echo "Milestone $RELEASE_VERSION"
+    - echo "Image $CI_REGISTRY_IMAGE"
+    - echo "Event source $CI_PIPELINE_SOURCE"
+    - echo "Report directory /tmp/$CI_COMMIT_SHA/reports"
+    - mkdir -p /tmp/$CI_COMMIT_SHA/reports
 
-alpha:
+basic-code-check:
+  stage: lint
+  rules:
+    - if: $CI_COMMIT_BRANCH == "alpha"
+  before_script:
+    - shfmt -mn -l -w entrypoint.sh  
+  script:
+    - shellcheck *.sh  | tee  /tmp/$CI_COMMIT_SHA/reports/shellcheck-lint-report.txt
+    - ansible-lint . --exclude .gitlab-ci.yml -x expirimental --profile basic -f codeclimate | tee /tmp/$CI_COMMIT_SHA/reports/ansible-lint-report.json
+  artifacts:
+    reports:
+      cyclonedx:
+        - /tmp/$CI_COMMIT_SHA/reports/ptg-standard-sbom.json
+    paths:
+      - /tmp/$CI_COMMIT_SHA/reports/*
+    expire_in: 1 week
+    
+prod-code-check:
+  stage: lint
+  rules:
+    - if: $CI_COMMIT_BRANCH == "beta"
+  before_script:
+    - shfmt -i 2 -ci -mn  -d  entrypoint.sh  
+  script:
+    - shellcheck *.sh  | tee  /tmp/$CI_COMMIT_SHA/reports/shellcheck-lint-report.txt
+    - ansible-lint . --exclude .gitlab-ci.yml -x expirimental --profile safety -f codeclimate | tee /tmp/$CI_COMMIT_SHA/reports/ansible-lint-report.json
+
+alpha2beta:
   stage: build
+  artifacts:
+    reports:
+      cyclonedx:
+        - /tmp/$CI_COMMIT_SHA/reports/ptg-standard-sbom.json
+    paths:
+      - /tmp/$CI_COMMIT_SHA/reports/*
+    expire_in: 1 week
   retry:
     max: 2
     when:
@@ -30,13 +84,13 @@ alpha:
       - stuck_or_timeout_failure
   script:
     - docker build -t $CI_PROJECT_NAME .
-    - docker image tag  $CI_PROJECT_NAME $CI_REGISTRY_IMAGE:alpha
-    - docker push $CI_REGISTRY_IMAGE:alpha
+    - docker image tag  $CI_PROJECT_NAME $CI_REGISTRY_IMAGE:beta
+    - docker push $CI_REGISTRY_IMAGE:beta
   # Run this job in a branch where a Dockerfile exists && on a scheduled build on main
   rules:
-    - if: $CI_COMMIT_BRANCH == "alpha"
+    - if: $CI_COMMIT_BRANCH == "alpha" && $CI_PIPELINE_SOURCE == "merge_request_event"
 
-beta:
+beta2main:
   stage: build
   release:
     name: "CICD built release $RELEASE_VERSION"
@@ -47,6 +101,13 @@ beta:
         - name: 'Docker Image'
           url: 'https://$CI_REGISTRY_IMAGE:$RELEASE_VERSION'
           link_type: 'image'
+  artifacts:
+    reports:
+      cyclonedx:
+        - /tmp/$CI_COMMIT_SHA/reports/ptg-standard-sbom.json
+    paths:
+      - /tmp/$CI_COMMIT_SHA/reports/*
+    expire_in: 1 week
   retry:
     max: 2
     when:
@@ -60,33 +121,37 @@ beta:
     - docker push $CI_REGISTRY_IMAGE:latest
     - docker push $CI_REGISTRY_IMAGE:stable
     - docker push $CI_REGISTRY_IMAGE:$RELEASE_VERSION
-
   # Run this job in a branch where a Dockerfile exists
   rules:
     - if: $CI_COMMIT_BRANCH == "beta"
 
-prod-merge:
+Main:
   stage: build
-  release:
-    tag_name: $CI_MERGE_REQUEST_MILESTONE
-    description: "A CICD release"
   retry:
     max: 2
     when:
       - runner_system_failure
       - stuck_or_timeout_failure
+  artifacts:
+    reports:
+      cyclonedx:
+        - /tmp/$CI_COMMIT_SHA/reports/ptg-standard-sbom.json
+    paths:
+      - /tmp/$CI_COMMIT_SHA/reports/*
+    expire_in: 1 week
   script:
     - docker build -t $CI_PROJECT_NAME .
     - docker image tag  $CI_PROJECT_NAME $CI_REGISTRY_IMAGE:latest
     - docker image tag  $CI_PROJECT_NAME $CI_REGISTRY_IMAGE:stable
-    - docker image tag  $CI_PROJECT_NAME $CI_REGISTRY_IMAGE:$CI_MERGE_REQUEST_MILESTONE
+    - docker image tag  $CI_PROJECT_NAME $CI_REGISTRY_IMAGE:$RELEASE_VERSION
     - docker push $CI_REGISTRY_IMAGE:latest
     - docker push $CI_REGISTRY_IMAGE:stable
-    - docker push $CI_REGISTRY_IMAGE:$CI_MERGE_REQUEST_MILESTONE
+    - docker push $CI_REGISTRY_IMAGE:$RELEASE_VERSION
+  # Run this job in a branch where a Dockerfile exists && on a scheduled build on main
   rules:
-    - if: $CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
 
-prod-sched:
+alpha:
   stage: build
   retry:
     max: 2
@@ -97,12 +162,27 @@ prod-sched:
     - docker build -t $CI_PROJECT_NAME .
     - docker image tag  $CI_PROJECT_NAME $CI_REGISTRY_IMAGE:alpha
     - docker push $CI_REGISTRY_IMAGE:alpha
-  # Run this job in a branch where a Dockerfile exists && on a scheduled build on main
+  artifacts:
+    reports:
+      cyclonedx:
+        - /tmp/$CI_COMMIT_SHA/reports/ptg-standard-sbom.json
+    paths:
+      - /tmp/$CI_COMMIT_SHA/reports/*
+    expire_in: 1 week
   rules:
-    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "alpha"
 
-
-after_script:
- # - docker image rm $CI_PROJECT_NAME:latest  -f
-  - docker image prune -f
-  - docker container prune -f
+code_quality:
+  artifacts:
+    paths: 
+      - gl-code-quality-report.json
+      - /tmp/$CI_COMMIT_SHA/reports/ansible-lint-report.json
+    expire_in: 1 month
+  
+runner-postrun:
+  stage: cleanup
+  script:
+    - docker image rm $CI_PROJECT_NAME  -f
+    - docker image prune -f
+    - docker container prune -f
+    - rm -rf /tmp/$CI_COMMIT_SHA/reports
